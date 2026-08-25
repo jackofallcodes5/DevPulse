@@ -1,0 +1,13 @@
+# DevPulse
+node_modules/
+.env
+.env.local
+.env.production
+dist/
+build/
+.next/
+coverage/
+*.log
+npm-debug.log*
+.DS_Store
+Thumbs.db

@@ -1,0 +1,417 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "mysql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id               String            @id @default(uuid())
+  email            String            @unique
+  username         String            @unique
+  passwordHash     String?           @db.Text
+  name             String
+  avatarUrl        String?           @db.Text
+  createdAt        DateTime          @default(now())
+  updatedAt        DateTime          @updatedAt
+  refreshTokens    RefreshToken[]
+  workspaceMembers WorkspaceMember[]
+  workspaces       Workspace[]
+  projectMembers   ProjectMember[]
+  comments         Comment[]
+  notifications    Notification[]
+  githubAccount    GitHubAccount?
+  activities       Activity[]
+  auditLogs        AuditLog[]
+  assignedIssues   Issue[]           @relation("IssueAssignee")
+  reportedIssues   Issue[]           @relation("IssueReporter")
+}
+
+model RefreshToken {
+  id        String   @id @default(uuid())
+  token     String   @unique @db.VarChar(512)
+  userId    String
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+  revoked   Boolean  @default(false)
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([token])
+}
+
+model Workspace {
+  id        String            @id @default(uuid())
+  name      String
+  slug      String            @unique
+  ownerId   String
+  createdAt DateTime          @default(now())
+  updatedAt DateTime          @updatedAt
+  owner     User              @relation(fields: [ownerId], references: [id], onDelete: Restrict)
+  members   WorkspaceMember[]
+  projects  Project[]
+  monitors  Monitor[]
+  activities Activity[]
+
+  @@index([ownerId])
+}
+
+enum WorkspaceRole {
+  OWNER
+  ADMIN
+  DEVELOPER
+  VIEWER
+}
+
+model WorkspaceMember {
+  id          String        @id @default(uuid())
+  workspaceId String
+  userId      String
+  role        WorkspaceRole
+  joinedAt    DateTime      @default(now())
+  workspace   Workspace     @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  user        User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([workspaceId, userId])
+  @@index([workspaceId])
+  @@index([userId])
+}
+
+enum ProjectStatus {
+  ACTIVE
+  ARCHIVED
+}
+
+model Project {
+  id          String          @id @default(uuid())
+  name        String
+  description String?         @db.Text
+  key         String
+  status      ProjectStatus
+  workspaceId String
+  createdById String
+  createdAt   DateTime        @default(now())
+  updatedAt   DateTime        @updatedAt
+  workspace   Workspace       @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  members     ProjectMember[]
+  issues      Issue[]
+  monitors    Monitor[]
+  repositories GitHubRepository[]
+  activities  Activity[]
+
+  @@unique([workspaceId, key])
+  @@index([workspaceId])
+  @@index([createdById])
+}
+
+enum ProjectRole {
+  ADMIN
+  DEVELOPER
+  VIEWER
+}
+
+model ProjectMember {
+  id        String      @id @default(uuid())
+  projectId String
+  userId    String
+  role      ProjectRole
+  joinedAt  DateTime    @default(now())
+  project   Project     @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  user      User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([projectId, userId])
+  @@index([projectId])
+  @@index([userId])
+}
+
+enum IssueStatus {
+  TODO
+  IN_PROGRESS
+  REVIEW
+  DONE
+}
+
+enum IssuePriority {
+  LOW
+  MEDIUM
+  HIGH
+  URGENT
+}
+
+model Issue {
+  id          String        @id @default(uuid())
+  number      Int
+  title       String        @db.VarChar(512)
+  description String?       @db.LongText
+  status      IssueStatus   @default(TODO)
+  priority    IssuePriority @default(MEDIUM)
+  projectId   String
+  reporterId  String
+  assigneeId  String?
+  dueDate     DateTime?
+  createdAt   DateTime      @default(now())
+  updatedAt   DateTime      @updatedAt
+  project     Project       @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  reporter    User          @relation("IssueReporter", fields: [reporterId], references: [id], onDelete: Restrict)
+  assignee    User?         @relation("IssueAssignee", fields: [assigneeId], references: [id], onDelete: SetNull)
+  labels      IssueLabel[]
+  comments    Comment[]
+  commits     GitHubCommit[]
+  pullRequests GitHubPullRequest[]
+
+  @@unique([projectId, number])
+  @@index([projectId])
+  @@index([reporterId])
+  @@index([assigneeId])
+  @@index([status])
+  @@index([priority])
+  @@index([createdAt])
+}
+
+model IssueLabel {
+  id      String @id @default(uuid())
+  issueId String
+  label   String
+  issue   Issue  @relation(fields: [issueId], references: [id], onDelete: Cascade)
+
+  @@unique([issueId, label])
+  @@index([issueId])
+}
+
+model Comment {
+  id        String   @id @default(uuid())
+  body      String   @db.Text
+  issueId   String
+  authorId  String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  issue     Issue    @relation(fields: [issueId], references: [id], onDelete: Cascade)
+  author    User     @relation(fields: [authorId], references: [id], onDelete: Cascade)
+
+  @@index([issueId])
+  @@index([authorId])
+}
+
+model Notification {
+  id        String   @id @default(uuid())
+  userId    String
+  type      String
+  title     String
+  message   String   @db.Text
+  metadata  Json?
+  read      Boolean  @default(false)
+  createdAt DateTime @default(now())
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([read])
+  @@index([createdAt])
+}
+
+model Activity {
+  id          String     @id @default(uuid())
+  projectId   String?
+  workspaceId String?
+  userId      String?
+  type        String
+  payload     Json
+  createdAt   DateTime   @default(now())
+  project     Project?   @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  workspace   Workspace? @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  user        User?      @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  @@index([projectId])
+  @@index([workspaceId])
+  @@index([userId])
+  @@index([createdAt])
+}
+
+model AuditLog {
+  id         String   @id @default(uuid())
+  userId     String?
+  action     String
+  resource   String
+  resourceId String?
+  metadata   Json?
+  ipAddress  String?
+  createdAt  DateTime @default(now())
+  user       User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  @@index([userId])
+  @@index([resource])
+  @@index([createdAt])
+}
+
+model GitHubAccount {
+  id           String             @id @default(uuid())
+  userId       String             @unique
+  githubId     String             @unique
+  login        String
+  name         String?
+  avatarUrl    String?            @db.Text
+  accessToken  String             @db.Text
+  tokenScope   String?
+  createdAt    DateTime           @default(now())
+  updatedAt    DateTime           @updatedAt
+  user         User               @relation(fields: [userId], references: [id], onDelete: Cascade)
+  repositories GitHubRepository[]
+
+  @@index([userId])
+}
+
+model GitHubRepository {
+  id              String             @id @default(uuid())
+  githubId        Int                @unique
+  name            String
+  fullName        String             @unique
+  description     String?            @db.Text
+  private         Boolean            @default(false)
+  url             String
+  cloneUrl        String?
+  defaultBranch   String             @default("main")
+  projectId       String?
+  githubAccountId String
+  createdAt       DateTime           @default(now())
+  updatedAt       DateTime           @updatedAt
+  project         Project?           @relation(fields: [projectId], references: [id], onDelete: SetNull)
+  account         GitHubAccount      @relation(fields: [githubAccountId], references: [id], onDelete: Cascade)
+  commits         GitHubCommit[]
+  pullRequests    GitHubPullRequest[]
+  events          GitHubEvent[]
+
+  @@index([projectId])
+  @@index([githubAccountId])
+}
+
+model GitHubCommit {
+  id           String            @id @default(uuid())
+  sha          String
+  message      String            @db.Text
+  authorName   String
+  authorEmail  String
+  authoredAt   DateTime
+  url          String
+  repositoryId String
+  projectId    String?
+  issueId      String?
+  pushedAt     DateTime
+  createdAt    DateTime          @default(now())
+  repository   GitHubRepository  @relation(fields: [repositoryId], references: [id], onDelete: Cascade)
+  project      Project?          @relation(fields: [projectId], references: [id], onDelete: SetNull)
+  issue        Issue?            @relation(fields: [issueId], references: [id], onDelete: SetNull)
+
+  @@unique([repositoryId, sha])
+  @@index([repositoryId])
+  @@index([projectId])
+  @@index([issueId])
+  @@index([pushedAt])
+}
+
+model GitHubPullRequest {
+  id              String            @id @default(uuid())
+  githubId        Int
+  number          Int
+  title           String            @db.VarChar(512)
+  state           String
+  body            String?           @db.LongText
+  url             String
+  authorLogin     String
+  authorAvatarUrl String?           @db.Text
+  merged          Boolean           @default(false)
+  mergedAt        DateTime?
+  repositoryId    String
+  projectId       String?
+  issueId         String?
+  githubCreatedAt DateTime
+  githubUpdatedAt DateTime
+  createdAt       DateTime          @default(now())
+  updatedAt       DateTime          @updatedAt
+  repository      GitHubRepository  @relation(fields: [repositoryId], references: [id], onDelete: Cascade)
+  project         Project?          @relation(fields: [projectId], references: [id], onDelete: SetNull)
+  issue           Issue?            @relation(fields: [issueId], references: [id], onDelete: SetNull)
+
+  @@unique([repositoryId, number])
+  @@index([repositoryId])
+  @@index([projectId])
+  @@index([issueId])
+  @@index([state])
+}
+
+model GitHubEvent {
+  id           String            @id @default(uuid())
+  deliveryId   String            @unique
+  event        String
+  action       String?
+  repositoryId String?
+  payload      Json
+  processed    Boolean           @default(false)
+  processedAt  DateTime?
+  createdAt    DateTime          @default(now())
+  repository   GitHubRepository? @relation(fields: [repositoryId], references: [id], onDelete: SetNull)
+
+  @@index([repositoryId])
+  @@index([processed])
+  @@index([createdAt])
+}
+
+model Monitor {
+  id              String         @id @default(uuid())
+  name            String
+  url             String
+  method          String         @default("GET")
+  expectedStatus  Int            @default(200)
+  intervalMinutes Int            @default(5)
+  timeoutSeconds  Int            @default(30)
+  active          Boolean        @default(true)
+  workspaceId     String
+  projectId       String?
+  createdById     String
+  createdAt       DateTime       @default(now())
+  updatedAt       DateTime       @updatedAt
+  workspace       Workspace      @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  project         Project?       @relation(fields: [projectId], references: [id], onDelete: SetNull)
+  checks          MonitorCheck[]
+  incidents       Incident[]
+
+  @@index([workspaceId])
+  @@index([projectId])
+  @@index([active])
+}
+
+model MonitorCheck {
+  id             String   @id @default(uuid())
+  monitorId      String
+  success        Boolean
+  statusCode     Int?
+  responseTimeMs Int?
+  error          String?  @db.Text
+  checkedAt      DateTime @default(now())
+  monitor        Monitor  @relation(fields: [monitorId], references: [id], onDelete: Cascade)
+
+  @@index([monitorId])
+  @@index([checkedAt])
+  @@index([success])
+}
+
+enum IncidentStatus {
+  OPEN
+  RESOLVED
+}
+
+model Incident {
+  id         String         @id @default(uuid())
+  monitorId  String
+  status     IncidentStatus @default(OPEN)
+  reason     String?        @db.Text
+  startedAt  DateTime       @default(now())
+  resolvedAt DateTime?
+  createdAt  DateTime       @default(now())
+  updatedAt  DateTime       @updatedAt
+  monitor    Monitor        @relation(fields: [monitorId], references: [id], onDelete: Cascade)
+
+  @@index([monitorId])
+  @@index([status])
+  @@index([startedAt])
+}
